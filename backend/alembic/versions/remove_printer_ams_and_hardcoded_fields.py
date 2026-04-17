@@ -12,6 +12,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -23,19 +24,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Remove AMS tables/columns and hardcoded printer fields."""
-    # 1. Drop the unique constraint that references ams columns before altering
-    #    (SQLite requires table rebuild for constraint changes, but op.drop_constraint
-    #    with batch mode handles this)
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+
+    # On MySQL/MariaDB the FK on ams_unit_id blocks dropping its backing index
+    # and column (error 1553/1025). The constraint was created unnamed in
+    # 4b9f107a3faf_initial_tables, so the DB generated the name — look it up.
+    # SQLite rebuilds the table in batch mode and doesn't need an explicit drop.
+    if dialect in ('mysql', 'mariadb'):
+        insp = inspect(bind)
+        for fk in insp.get_foreign_keys('printer_slots'):
+            if fk.get('constrained_columns') == ['ams_unit_id'] and fk.get('name'):
+                op.drop_constraint(fk['name'], 'printer_slots', type_='foreignkey')
+                break
+
     with op.batch_alter_table('printer_slots') as batch_op:
-        # Drop old unique constraint that included is_ams_slot and ams_unit_id
         batch_op.drop_constraint('uq_printer_slots_unique', type_='unique')
-        # Drop index on ams_unit_id before dropping the column
         batch_op.drop_index('ix_printer_slots_ams_unit_id')
-        # In SQLite batch mode, dropping the column automatically removes its FK
-        # Remove AMS columns
         batch_op.drop_column('is_ams_slot')
         batch_op.drop_column('ams_unit_id')
-        # Recreate simpler unique constraint
         batch_op.create_unique_constraint('uq_printer_slots_unique', ['printer_id', 'slot_no'])
 
     # 2. Drop printer_ams_units table

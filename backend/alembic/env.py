@@ -13,6 +13,7 @@ config = context.config
 # eliminates complex event loop handling and potential aiosqlite issues during startup.
 sync_url = settings.database_url.replace("sqlite+aiosqlite", "sqlite")
 sync_url = sync_url.replace("postgresql+asyncpg", "postgresql+psycopg2")
+sync_url = sync_url.replace("mysql+aiomysql", "mysql+pymysql")
 config.set_main_option("sqlalchemy.url", sync_url)
 
 if config.config_file_name is not None:
